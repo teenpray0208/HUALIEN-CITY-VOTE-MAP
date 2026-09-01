@@ -59,9 +59,10 @@ if __name__ == '__main__':
         '2022': parse(sys.argv[1], ['kmt', 'other', 'dpp']),
         '2024': parse(sys.argv[2], ['tpp', 'dpp', 'kmt']),
     }
-    overview = parse_overview(sys.argv[1])
-    for name, values in overview.items():
-        data['2022'][name].update(values)
+    for year, path in [('2022', sys.argv[1]), ('2024', sys.argv[2])]:
+        overview = parse_overview(path)
+        for name, values in overview.items():
+            data[year][name].update(values)
     with open(sys.argv[3], 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
     print('2022 villages:', len(data['2022']))
