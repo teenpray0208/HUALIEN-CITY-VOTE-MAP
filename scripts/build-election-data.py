@@ -31,6 +31,22 @@ def parse(path, candidate_keys):
     return result
 
 
+def parse_overview(path):
+    source = open(path, encoding='utf-8').read()
+    tables = re.findall(r'<table[^>]*>(.*?)</table>', source, re.S | re.I)
+    table = next(t for t in tables if '行政區' in t and '選舉人數' in t and '投票率' in t)
+    result = {}
+    for row in re.findall(r'<tr[^>]*>(.*?)</tr>', table, re.S | re.I):
+        cells = [clean(x) for x in re.findall(r'<td[^>]*>(.*?)</td>', row, re.S | re.I)]
+        if len(cells) >= 10 and cells[0].endswith('里'):
+            result[cells[0]] = {
+                'electors': number(cells[2]),
+                'ballots': number(cells[4]),
+                'turnout': float(cells[5].replace('%', '')),
+            }
+    return result
+
+
 def clean(value):
     value = re.sub(r'<[^>]+>', '', value)
     return html.unescape(value).strip()
@@ -43,6 +59,9 @@ if __name__ == '__main__':
         '2022': parse(sys.argv[1], ['kmt', 'other', 'dpp']),
         '2024': parse(sys.argv[2], ['tpp', 'dpp', 'kmt']),
     }
+    overview = parse_overview(sys.argv[1])
+    for name, values in overview.items():
+        data['2022'][name].update(values)
     with open(sys.argv[3], 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
     print('2022 villages:', len(data['2022']))
