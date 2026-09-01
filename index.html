@@ -115,7 +115,6 @@ document.querySelectorAll('.mode-btn').forEach(btn=>btn.addEventListener('click'
 function selectBySearch(){const input=document.querySelector('#search'),r=state.records.find(x=>x.name===input.value.trim());if(!r)return;const layer=state.layers.get(r.name);map.fitBounds(layer.getBounds(),{maxZoom:15,padding:[50,50]});renderDetail(r);refreshStyles()}
 document.querySelector('#search').addEventListener('change',selectBySearch);
 document.querySelector('#search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();selectBySearch()}});
-document.querySelector('.rank').addEventListener('mouseleave',refreshStyles);
 document.querySelector('#modal-close').addEventListener('click',closeModal);
 document.querySelector('#metric-popover-close').addEventListener('click',closeMetricPopover);
 document.querySelector('#analysis-modal').addEventListener('click',e=>{if(e.target.id==='analysis-modal')closeModal()});
