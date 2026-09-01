@@ -23,51 +23,52 @@
 <div id="app">
   <header>
     <div><h1>🗳️ 花蓮市各里投票分布地圖</h1><div class="subtitle">2024 第16任總統副總統選舉｜花蓮市 44 里互動檢視</div></div>
-    <div class="header-actions"><span class="mode-label">檢視：</span><button class="mode-btn active" data-mode="winner">候選人勝出</button><button class="mode-btn" data-mode="margin">勝出幅度</button></div>
+    <div class="header-actions"><span class="mode-label">選舉：</span><button class="mode-btn" data-year="2022">2022 縣長</button><button class="mode-btn active" data-year="2024">2024 總統</button><button class="mode-btn" data-year="2026">2026 預估</button></div>
   </header>
   <div id="map" aria-label="花蓮市各里投票分布互動地圖"></div>
   <section class="panel summary" aria-label="花蓮市總得票">
-    <h2>🏛️ 花蓮市 2024 總統票</h2>
+    <h2 id="summary-title">🏛️ 花蓮市 2024 總統票</h2>
     <div id="city-summary"></div>
-    <div class="note">總票數為中選會公布之花蓮市結果；各里圖層目前為比例化展示資料，請勿作正式統計引用。</div>
+    <div class="note" id="data-note"></div>
   </section>
   <aside class="panel legend" aria-label="圖例與里別資訊">
     <div class="legend-inner"><h2>圖例</h2><div id="legend-items"></div><div class="search-wrap"><input id="search" class="search" list="villages" placeholder="搜尋里名，例如：國富里" aria-label="搜尋里名"><datalist id="villages"></datalist></div></div>
     <div class="detail" id="detail"><div class="empty"><b>☝️</b>點擊地圖上的里<br>查看三組候選人票數與比例</div></div>
     <div class="stats" id="stats"></div>
   </aside>
-  <section class="rank" aria-label="得票率排名"><h3 id="rank-title">侯友宜得票率較高的里</h3><div class="rank-list" id="rank-list"></div></section>
+  <section class="rank" aria-label="民眾黨得票排名"><h3 id="rank-title">2024 民眾黨得票最多的里</h3><div class="rank-list" id="rank-list"></div></section>
   <div class="loading" id="loading"><div class="loading-card"><div class="spinner"></div>載入花蓮市村里界…</div></div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const CANDIDATES={
-  kmt:{name:'侯友宜・趙少康',short:'侯友宜',party:'中國國民黨',color:'#2563a9',votes:25996},
-  dpp:{name:'賴清德・蕭美琴',short:'賴清德',party:'民主進步黨',color:'#1d9b63',votes:15020},
-  tpp:{name:'柯文哲・吳欣盈',short:'柯文哲',party:'台灣民眾黨',color:'#20a8d8',votes:14116}
+const DATASETS={
+  2022:{title:'花蓮市 2022 縣長票',subtitle:'2022 花蓮縣長選舉｜花蓮市 44 里實際開票',note:'實際結果｜資料來源：中央選舉委員會／VoteTW 里級彙整。',candidates:{kmt:{short:'徐榛蔚',party:'中國國民黨',color:'#2563a9'},other:{short:'黃師鵬',party:'無黨籍',color:'#7c8795'},dpp:{short:'Kolas',party:'民主進步黨',color:'#1d9b63'}}},
+  2024:{title:'花蓮市 2024 總統票',subtitle:'2024 第16任總統副總統選舉｜花蓮市 44 里實際開票',note:'實際結果｜資料來源：中央選舉委員會／VoteTW 里級彙整。',candidates:{kmt:{short:'侯友宜',party:'中國國民黨',color:'#2563a9'},dpp:{short:'賴清德',party:'民主進步黨',color:'#1d9b63'},tpp:{short:'柯文哲',party:'台灣民眾黨',color:'#20a8d8'}}},
+  2026:{title:'花蓮市 2026 選情預估',subtitle:'2026 花蓮地方選舉預估｜藍、綠、白各自參選（無藍白合）',note:'模型推估，非民調｜綜合 2022 縣長與 2024 總統各里政黨基礎；假設藍、綠、白各自參選。',candidates:{kmt:{short:'國民黨',party:'中國國民黨',color:'#2563a9'},dpp:{short:'民進黨',party:'民主進步黨',color:'#1d9b63'},tpp:{short:'民眾黨',party:'台灣民眾黨',color:'#20a8d8'}}}
 };
-const TOTAL=Object.values(CANDIDATES).reduce((s,c)=>s+c.votes,0);
-const state={mode:'winner',selected:null,layers:new Map(),records:[]};
+const state={year:'2024',selected:null,layers:new Map(),records:[],allData:{}};
 const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([23.991,121.611],13);
 L.control.zoom({position:'bottomright'}).addTo(map);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
-const fmt=n=>new Intl.NumberFormat('zh-TW').format(n); const pct=(n,d=TOTAL)=>(n/d*100).toFixed(1)+'%';
-function renderSummary(){document.querySelector('#city-summary').innerHTML=Object.entries(CANDIDATES).map(([key,c])=>`<div class="candidate"><div class="candidate-row"><span><i class="dot" style="background:${c.color}"></i>${c.party}</span><span><strong style="color:${c.color}">${fmt(c.votes)}</strong> 票・${pct(c.votes)}</span></div><div class="bar"><i style="width:${pct(c.votes)};background:${c.color}"></i></div></div>`).join('')}
-function hash(s){let h=2166136261;for(const ch of s){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}return Math.abs(h)}
-function allocateVotes(names){const raw=names.map((name,i)=>{const h=hash(name);const size=.55+(h%100)/100;const k=.42+((h>>3)%18)/100;const d=.19+((h>>7)%16)/100;const t=Math.max(.12,1-k-d);return{name,size,k,d,t}});const sizeSum=raw.reduce((s,r)=>s+r.size,0);raw.forEach(r=>r.total=Math.round(TOTAL*r.size/sizeSum));const sums={kmt:0,dpp:0,tpp:0};raw.forEach((r,i)=>{const den=r.k+r.d+r.t;r.kmt=Math.round(r.total*r.k/den);r.dpp=Math.round(r.total*r.d/den);r.tpp=r.total-r.kmt-r.dpp;if(i<raw.length-1){sums.kmt+=r.kmt;sums.dpp+=r.dpp;sums.tpp+=r.tpp}});const last=raw.at(-1);last.kmt+=CANDIDATES.kmt.votes-sums.kmt-last.kmt;last.dpp+=CANDIDATES.dpp.votes-sums.dpp-last.dpp;last.tpp+=CANDIDATES.tpp.votes-sums.tpp-last.tpp;raw.forEach(r=>{r.total=r.kmt+r.dpp+r.tpp;r.winner=['kmt','dpp','tpp'].sort((a,b)=>r[b]-r[a])[0];const vals=[r.kmt,r.dpp,r.tpp].sort((a,b)=>b-a);r.margin=(vals[0]-vals[1])/r.total});return raw}
-function colorFor(r){if(state.mode==='winner')return CANDIDATES[r.winner].color;const base=CANDIDATES[r.winner].color;const alpha=Math.min(.95,.28+r.margin*2.5);return hexAlpha(base,alpha)}
-function hexAlpha(hex,a){const n=parseInt(hex.slice(1),16),r=n>>16,g=n>>8&255,b=n&255;return `rgb(${Math.round(255+(r-255)*a)},${Math.round(255+(g-255)*a)},${Math.round(255+(b-255)*a)})`}
-function renderLegend(){const items=state.mode==='winner'?[['#2563a9','藍勝（侯友宜）'],['#1d9b63','綠勝（賴清德）'],['#20a8d8','白勝（柯文哲）']]:[['#dbe8f5','淺色：小幅領先'],['#75a6d7','中色：明顯領先'],['#174f8b','深色：大幅領先']];document.querySelector('#legend-items').innerHTML=items.map(x=>`<div class="legend-row"><i class="swatch" style="background:${x[0]}"></i>${x[1]}</div>`).join('')}
-function renderDetail(r){state.selected=r;const sorted=['kmt','dpp','tpp'].sort((a,b)=>r[b]-r[a]);document.querySelector('#detail').innerHTML=`<h3>${r.name}</h3><div class="winner">${CANDIDATES[r.winner].party}領先・勝出幅度 ${(r.margin*100).toFixed(1)}%</div><div class="detail-grid">${sorted.map(k=>`<div><strong style="color:${CANDIDATES[k].color}">${fmt(r[k])}</strong>${CANDIDATES[k].short}<br>${pct(r[k],r.total)}</div>`).join('')}</div>`}
-function renderStats(){const wins={kmt:0,dpp:0,tpp:0};state.records.forEach(r=>wins[r.winner]++);document.querySelector('#stats').innerHTML=['kmt','dpp','tpp'].map(k=>`<div><strong style="color:${CANDIDATES[k].color}">${wins[k]}</strong>${CANDIDATES[k].short}領先</div>`).join('')}
-function renderRank(){const rows=[...state.records].sort((a,b)=>b.kmt/b.total-a.kmt/a.total).slice(0,6);document.querySelector('#rank-list').innerHTML=rows.map((r,i)=>`<div class="rank-item"><b>${i+1}</b><span>${r.name}<span class="mini"><i style="width:${pct(r.kmt,r.total)};background:${CANDIDATES.kmt.color}"></i></span></span><strong>${pct(r.kmt,r.total)}</strong></div>`).join('')}
-function refreshStyles(){state.layers.forEach((layer,name)=>{const r=state.records.find(x=>x.name===name);layer.setStyle({fillColor:colorFor(r),fillOpacity:.76,weight:state.selected?.name===name?3:1.2,color:state.selected?.name===name?'#f59e0b':'#fff'})});renderLegend()}
-async function load(){try{const res=await fetch('./hualien-villages.geojson');if(!res.ok)throw Error('HTTP '+res.status);const geo=await res.json();if(!geo.features?.length)throw Error('找不到花蓮市村里界');const names=geo.features.map(f=>f.properties.VILL).sort((a,b)=>a.localeCompare(b,'zh-Hant'));state.records=allocateVotes(names);const byName=Object.fromEntries(state.records.map(r=>[r.name,r]));const group=L.geoJSON(geo,{style:f=>({fillColor:colorFor(byName[f.properties.VILL]),fillOpacity:.76,color:'#fff',weight:1.2}),onEachFeature:(f,layer)=>{const name=f.properties.VILL,r=byName[name];state.layers.set(name,layer);layer.bindTooltip(name,{permanent:true,direction:'center',className:'village-label'});layer.on({click:()=>{renderDetail(r);refreshStyles()},mouseover:()=>layer.setStyle({weight:3,color:'#f6b83f'}),mouseout:()=>refreshStyles()})}}).addTo(map);map.fitBounds(group.getBounds(),{padding:[20,20]});document.querySelector('#villages').innerHTML=names.map(n=>`<option value="${n}">`).join('');renderStats();renderRank();document.querySelector('#loading').remove()}catch(err){document.querySelector('#loading').innerHTML=`<div class="loading-card">⚠️ 村里界載入失敗<br><small>${err.message}。請確認網路連線後重新整理。</small></div>`}}
-document.querySelectorAll('.mode-btn').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.mode-btn').forEach(x=>x.classList.toggle('active',x===btn));state.mode=btn.dataset.mode;refreshStyles()}));
+const fmt=n=>new Intl.NumberFormat('zh-TW').format(n); const pct=(n,d)=>(n/d*100).toFixed(1)+'%';
+const candidates=()=>DATASETS[state.year].candidates;
+function enrich(name,votes){const keys=Object.keys(votes),total=keys.reduce((s,k)=>s+votes[k],0),winner=[...keys].sort((a,b)=>votes[b]-votes[a])[0],vals=keys.map(k=>votes[k]).sort((a,b)=>b-a);return{name,...votes,total,winner,margin:(vals[0]-vals[1])/total}}
+function project2026(name,v22,v24){const t22=Object.values(v22).reduce((a,b)=>a+b,0),t24=Object.values(v24).reduce((a,b)=>a+b,0);const scores={kmt:.58*v24.kmt/t24+.42*v22.kmt/t22,dpp:.58*v24.dpp/t24+.42*v22.dpp/t22,tpp:.78*v24.tpp/t24};const den=Object.values(scores).reduce((a,b)=>a+b,0),total=Math.round(t24*.94);const votes={kmt:Math.round(total*scores.kmt/den),dpp:Math.round(total*scores.dpp/den),tpp:0};votes.tpp=total-votes.kmt-votes.dpp;return enrich(name,votes)}
+function recordsFor(year,names){if(year==='2026')return names.map(n=>project2026(n,state.allData['2022'][n],state.allData['2024'][n]));return names.map(n=>enrich(n,state.allData[year][n]))}
+function renderSummary(){const cs=candidates(),total=state.records.reduce((s,r)=>s+r.total,0),totals=Object.fromEntries(Object.keys(cs).map(k=>[k,state.records.reduce((s,r)=>s+r[k],0)]));document.querySelector('#summary-title').textContent='🏛️ '+DATASETS[state.year].title;document.querySelector('.subtitle').textContent=DATASETS[state.year].subtitle;document.querySelector('#data-note').textContent=DATASETS[state.year].note;document.querySelector('#city-summary').innerHTML=Object.entries(cs).map(([k,c])=>`<div class="candidate"><div class="candidate-row"><span><i class="dot" style="background:${c.color}"></i>${c.party}</span><span><strong style="color:${c.color}">${fmt(totals[k])}</strong> 票・${pct(totals[k],total)}</span></div><div class="bar"><i style="width:${pct(totals[k],total)};background:${c.color}"></i></div></div>`).join('')}
+function colorFor(r){return candidates()[r.winner].color}
+function renderLegend(){document.querySelector('#legend-items').innerHTML=Object.values(candidates()).map(c=>`<div class="legend-row"><i class="swatch" style="background:${c.color}"></i>${c.short}領先</div>`).join('')}
+function renderDetail(r){state.selected=r;const cs=candidates(),sorted=Object.keys(cs).sort((a,b)=>r[b]-r[a]);document.querySelector('#detail').innerHTML=`<h3>${r.name}</h3><div class="winner">${cs[r.winner].party}領先・勝出幅度 ${(r.margin*100).toFixed(1)}%${state.year==='2026'?'（模型預估）':''}</div><div class="detail-grid">${sorted.map(k=>`<div><strong style="color:${cs[k].color}">${fmt(r[k])}</strong>${cs[k].short}<br>${pct(r[k],r.total)}</div>`).join('')}</div>`}
+function renderStats(){const cs=candidates(),wins=Object.fromEntries(Object.keys(cs).map(k=>[k,0]));state.records.forEach(r=>wins[r.winner]++);document.querySelector('#stats').innerHTML=Object.keys(cs).map(k=>`<div><strong style="color:${cs[k].color}">${wins[k]}</strong>${cs[k].short}領先</div>`).join('')}
+function renderRank(){const rows=recordsFor('2024',Object.keys(state.allData['2024'])).sort((a,b)=>b.tpp-a.tpp).slice(0,6);document.querySelector('#rank-list').innerHTML=rows.map((r,i)=>`<div class="rank-item"><b>${i+1}</b><span>${r.name}<span class="mini"><i style="width:${pct(r.tpp,r.total)};background:#20a8d8"></i></span></span><strong>${fmt(r.tpp)}票</strong></div>`).join('')}
+function refreshStyles(){state.layers.forEach((layer,name)=>{const r=state.records.find(x=>x.name===name);layer.setStyle({fillColor:colorFor(r),fillOpacity:.76,weight:state.selected?.name===name?3:1.2,color:state.selected?.name===name?'#f59e0b':'#fff'})});renderSummary();renderLegend();renderStats()}
+function setYear(year){state.year=year;state.selected=null;state.records=recordsFor(year,Object.keys(state.allData[year==='2026'?'2024':year]));document.querySelectorAll('.mode-btn').forEach(x=>x.classList.toggle('active',x.dataset.year===year));document.querySelector('#detail').innerHTML='<div class="empty"><b>☝️</b>點擊地圖上的里<br>查看候選人票數與比例</div>';refreshStyles()}
+async function load(){try{const [geoRes,dataRes]=await Promise.all([fetch('./hualien-villages.geojson'),fetch('./election-data.json')]);if(!geoRes.ok||!dataRes.ok)throw Error('資料檔載入失敗');const geo=await geoRes.json();state.allData=await dataRes.json();const names=geo.features.map(f=>f.properties.VILL).sort((a,b)=>a.localeCompare(b,'zh-Hant'));state.records=recordsFor('2024',names);const group=L.geoJSON(geo,{style:f=>({fillColor:colorFor(state.records.find(r=>r.name===f.properties.VILL)),fillOpacity:.76,color:'#fff',weight:1.2}),onEachFeature:(f,layer)=>{const name=f.properties.VILL;state.layers.set(name,layer);layer.bindTooltip(name,{permanent:true,direction:'center',className:'village-label'});layer.on({click:()=>{renderDetail(state.records.find(r=>r.name===name));refreshStyles()},mouseover:()=>layer.setStyle({weight:3,color:'#f6b83f'}),mouseout:()=>refreshStyles()})}}).addTo(map);map.fitBounds(group.getBounds(),{padding:[20,20]});document.querySelector('#villages').innerHTML=names.map(n=>`<option value="${n}">`).join('');renderRank();setYear('2024');document.querySelector('#loading').remove()}catch(err){document.querySelector('#loading').innerHTML=`<div class="loading-card">⚠️ 資料載入失敗<br><small>${err.message}。請重新整理。</small></div>`}}
+document.querySelectorAll('.mode-btn').forEach(btn=>btn.addEventListener('click',()=>setYear(btn.dataset.year)));
 function selectBySearch(){const input=document.querySelector('#search'),r=state.records.find(x=>x.name===input.value.trim());if(!r)return;const layer=state.layers.get(r.name);map.fitBounds(layer.getBounds(),{maxZoom:15,padding:[50,50]});renderDetail(r);refreshStyles()}
 document.querySelector('#search').addEventListener('change',selectBySearch);
 document.querySelector('#search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();selectBySearch()}});
-renderSummary();renderLegend();load();
+load();
 </script>
 </body>
 </html>
