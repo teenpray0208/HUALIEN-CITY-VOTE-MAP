@@ -19,6 +19,7 @@ const query = `[out:json][timeout:120];(
   nwr["name"]["amenity"~"^(school|kindergarten|college|university|hospital|clinic|townhall|community_centre|police|fire_station|post_office|bus_station|ferry_terminal|courthouse)$"](${bbox});
   nwr["name"]["office"="government"](${bbox});
   nwr["name"]["public_transport"="station"](${bbox});
+  nwr["name"]["building"~"^(commercial|retail|office|hotel|public|civic|government|hospital|school|university|college|train_station|transportation|stadium)$"](${bbox});
   nwr["name"]["natural"~"^(beach|peak)$"](${bbox});
   nwr["name"]["man_made"="lighthouse"](${bbox});
   nwr["name"]["railway"="station"](${bbox});
@@ -103,11 +104,27 @@ function infrastructureType(tags) {
   return '政府機關';
 }
 
+function buildingType(tags) {
+  if (tags.building === 'hotel') return '飯店建築';
+  if (/^(commercial|retail)$/.test(tags.building || '')) return '商業建築';
+  if (tags.building === 'office') return '辦公建築';
+  if (/^(school|university|college)$/.test(tags.building || '')) return '校園建築';
+  if (tags.building === 'hospital') return '醫療建築';
+  if (/^(train_station|transportation)$/.test(tags.building || '')) return '交通建築';
+  if (tags.building === 'stadium') return '體育建築';
+  return '公共建築';
+}
+
+function isMajorBuilding(tags) {
+  return /^(commercial|retail|office|hotel|public|civic|government|hospital|school|university|college|train_station|transportation|stadium)$/.test(tags.building || '');
+}
+
 const osm = await fetchOverpass();
 const roads = osm.elements.filter(element => element.tags?.highway && element.tags?.name);
 const namedPlaces = osm.elements.filter(element => !element.tags?.highway && element.tags?.name);
-const attractions = namedPlaces.filter(element => !isInfrastructure(element.tags));
+const attractions = namedPlaces.filter(element => !isInfrastructure(element.tags) && !isMajorBuilding(element.tags));
 const infrastructure = namedPlaces.filter(element => isInfrastructure(element.tags));
+const buildings = namedPlaces.filter(element => isMajorBuilding(element.tags));
 const result = {};
 
 for (const feature of geo.features) {
@@ -115,6 +132,7 @@ for (const feature of geo.features) {
   const roadNames = new Set();
   const places = new Map();
   const facilities = new Map();
+  const majorBuildings = new Map();
   for (const road of roads) {
     if (elementPoints(road).some(point => insideFeature(point, feature))) roadNames.add(road.tags.name);
   }
@@ -130,10 +148,17 @@ for (const feature of geo.features) {
       if (!facilities.has(facilityName)) facilities.set(facilityName, infrastructureType(facility.tags));
     }
   }
+  const usedNames = new Set([...places.keys(), ...facilities.keys()]);
+  for (const building of buildings) {
+    if (!usedNames.has(building.tags.name) && elementPoints(building).some(point => insideFeature(point, feature))) {
+      majorBuildings.set(building.tags.name, buildingType(building.tags));
+    }
+  }
   result[name] = {
     roads: [...roadNames].sort((a, b) => a.localeCompare(b, 'zh-Hant')),
     attractions: [...places].map(([placeName, type]) => ({ name: placeName, type })).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant')),
-    infrastructure: [...facilities].map(([facilityName, type]) => ({ name: facilityName, type })).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+    infrastructure: [...facilities].map(([facilityName, type]) => ({ name: facilityName, type })).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant')),
+    buildings: [...majorBuildings].map(([buildingName, type]) => ({ name: buildingName, type })).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
   };
 }
 
@@ -142,10 +167,10 @@ await writeFile('place-data.json', `${JSON.stringify({
     source: 'OpenStreetMap contributors',
     sourceUrl: 'https://www.openstreetmap.org/copyright',
     generatedAt: new Date().toISOString(),
-    note: '道路、景點及主要建設依公開圖資座標和花蓮市里界進行空間比對；跨里道路可能列於多個里。'
+    note: '道路、景點、公共設施及主要建物依公開圖資座標和花蓮市里界進行空間比對；跨里道路可能列於多個里。'
   },
   villages: result
 })}\n`, 'utf8');
 
 const counts = Object.values(result);
-console.log(`Wrote place-data.json: ${counts.reduce((sum, row) => sum + row.roads.length, 0)} village-road links, ${counts.reduce((sum, row) => sum + row.attractions.length, 0)} village-attraction links, ${counts.reduce((sum, row) => sum + row.infrastructure.length, 0)} village-infrastructure links.`);
+console.log(`Wrote place-data.json: ${counts.reduce((sum, row) => sum + row.roads.length, 0)} village-road links, ${counts.reduce((sum, row) => sum + row.attractions.length, 0)} village-attraction links, ${counts.reduce((sum, row) => sum + row.infrastructure.length, 0)} village-infrastructure links, ${counts.reduce((sum, row) => sum + row.buildings.length, 0)} village-building links.`);
